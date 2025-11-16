@@ -12,7 +12,8 @@ from app.models.user import User
 from app.logging_config import get_logger
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use bcrypt_sha256 which handles long passwords better and avoids bcrypt version compatibility issues
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 logger = get_logger(__name__)
 
 JWT_ALGORITHM = "HS256"
@@ -49,49 +50,48 @@ def generate_secret_key() -> str:
 def _truncate_password_for_bcrypt(password: str) -> str:
     """
     Truncate password to 72 bytes (bcrypt limit).
-    Bcrypt only uses the first 72 bytes of a password.
+    Note: bcrypt_sha256 handles this automatically, but we keep this for safety.
     """
     if not isinstance(password, str):
         password = str(password)
+    # bcrypt_sha256 automatically handles long passwords via SHA-256 pre-hashing
+    # So truncation is not strictly needed, but we keep it for compatibility
     password_bytes = password.encode('utf-8')
-    original_len = len(password_bytes)
-    if original_len > 72:
+    if len(password_bytes) > 72:
         # Truncate to exactly 72 bytes
         truncated_bytes = password_bytes[:72]
-        # Decode back to string, handling any incomplete UTF-8 sequences
         password = truncated_bytes.decode('utf-8', errors='ignore')
         logger.warning(
-            f"Password truncated from {original_len} bytes to 72 bytes (bcrypt limit). "
-            f"Only first 72 bytes will be used for hashing."
+            f"Password truncated from {len(password_bytes)} bytes to 72 bytes (bcrypt limit)."
         )
     return password
 
 
 def hash_password(password: str) -> str:
-    # Bcrypt has a 72-byte limit for passwords
-    # Truncate BEFORE passing to passlib to avoid initialization errors
-    password = _truncate_password_for_bcrypt(password)
-    # Verify truncation worked
-    password_bytes = password.encode('utf-8')
-    if len(password_bytes) > 72:
-        logger.error(f"Password still too long after truncation: {len(password_bytes)} bytes")
-        # Force truncate again
-        password = password_bytes[:72].decode('utf-8', errors='ignore')
+    """
+    Hash password using bcrypt_sha256 scheme.
+    bcrypt_sha256 automatically handles long passwords by pre-hashing with SHA-256,
+    avoiding bcrypt's 72-byte limit and compatibility issues.
+    """
+    if not isinstance(password, str):
+        password = str(password)
     try:
+        # bcrypt_sha256 handles long passwords automatically via SHA-256 pre-hashing
         return pwd_context.hash(password)
-    except ValueError as e:
-        if "cannot be longer than 72 bytes" in str(e):
-            logger.error(f"Bcrypt error despite truncation. Password length: {len(password.encode('utf-8'))} bytes")
-            # Last resort: force to 72 bytes
-            password_bytes = password.encode('utf-8')[:72]
-            password = password_bytes.decode('utf-8', errors='ignore')
-            return pwd_context.hash(password)
-        raise
+    except Exception as e:
+        logger.error(f"Password hashing failed: {e}")
+        # Fallback: truncate and try again
+        password = _truncate_password_for_bcrypt(password)
+        return pwd_context.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    # Truncate password to 72 bytes to match hash_password behavior
-    password = _truncate_password_for_bcrypt(password)
+    """
+    Verify password using bcrypt_sha256 scheme.
+    No truncation needed as bcrypt_sha256 handles long passwords automatically.
+    """
+    if not isinstance(password, str):
+        password = str(password)
     return pwd_context.verify(password, password_hash)
 
 
