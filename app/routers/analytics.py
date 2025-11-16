@@ -17,11 +17,23 @@ async def get_analytics_summary(
     db: AsyncSession = Depends(get_db)
 ):
     """Get analytics summary"""
+    from app.logging_config import get_logger
+    logger = get_logger(__name__)
+    logger.info("Fetching analytics summary")
     try:
         summary = await FeedbackService.get_analytics_summary(db)
         return summary
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching analytics: {str(e)}")
+        logger.exception(f"Failed to fetch analytics summary: {e}")
+        # Return empty summary instead of crashing
+        return {
+            "total_feedback": 0,
+            "by_status": {},
+            "by_sentiment": {},
+            "by_urgency": {},
+            "by_department": {},
+            "average_rating": 0.0
+        }
 
 
 @router.get("/trends", dependencies=[Depends(require_role("admin", "staff"))])
@@ -30,9 +42,18 @@ async def get_analytics_trends(
     db: AsyncSession = Depends(get_db)
 ):
     """Get analytics trends"""
+    from app.logging_config import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Fetching analytics trends for {days} days")
     try:
         trends = await FeedbackService.get_analytics_trends(db, days=days)
         return trends
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching trends: {str(e)}")
+        logger.exception(f"Failed to fetch analytics trends: {e}")
+        # Return empty trends instead of crashing
+        return {
+            "daily_feedback": [],
+            "sentiment_trends": [],
+            "urgency_trends": []
+        }
 

@@ -152,6 +152,7 @@ async def get_all_feedback(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all feedback with filters"""
+    logger.info("Fetching all feedback with filters")
     try:
         feedbacks, total = await FeedbackService.get_all_feedback(
             db=db,
@@ -209,8 +210,14 @@ async def get_all_feedback(
         return response
         
     except Exception as e:
-        logger.exception("Failed to fetch feedback")
-        raise HTTPException(status_code=500, detail="Error fetching feedback")
+        logger.exception(f"Failed to fetch feedback: {e}")
+        # Return empty response instead of crashing
+        return {
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "feedbacks": []
+        }
 
 
 @router.get("/urgent", response_model=dict, dependencies=[Depends(require_role("admin", "staff"))])
@@ -219,6 +226,7 @@ async def get_urgent_feedback(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all urgent/critical feedback"""
+    logger.info("Fetching urgent feedback")
     try:
         feedbacks, total = await FeedbackService.get_all_feedback(
             db=db,
@@ -256,9 +264,13 @@ async def get_urgent_feedback(
             "total": total,
             "urgent_feedbacks": feedback_list
         }
-    except Exception:
-        logger.exception("Failed to fetch urgent feedback")
-        raise HTTPException(status_code=500, detail="Error fetching urgent feedback")
+    except Exception as e:
+        logger.exception(f"Failed to fetch urgent feedback: {e}")
+        # Return empty response instead of crashing
+        return {
+            "total": 0,
+            "urgent_feedbacks": []
+        }
 
 
 @router.get("/{feedback_id}", response_model=FeedbackDetailResponse, dependencies=[Depends(require_role("admin", "staff"))])
