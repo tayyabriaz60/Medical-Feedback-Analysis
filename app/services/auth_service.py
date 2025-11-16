@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 import os
 import secrets
+import hashlib
 
 from passlib.context import CryptContext
 from jose import jwt
@@ -13,6 +14,7 @@ from app.logging_config import get_logger
 
 
 # Use bcrypt_sha256 which handles long passwords better and avoids bcrypt version compatibility issues
+# Pre-hash with SHA-256 to ensure password is always 64 bytes (hex) before bcrypt
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 logger = get_logger(__name__)
 
@@ -70,17 +72,24 @@ def _truncate_password_for_bcrypt(password: str) -> str:
 def hash_password(password: str) -> str:
     """
     Hash password using bcrypt_sha256 scheme.
-    bcrypt_sha256 automatically handles long passwords by pre-hashing with SHA-256,
+    Pre-hash with SHA-256 to ensure password is always 64 bytes (hex) before bcrypt,
     avoiding bcrypt's 72-byte limit and compatibility issues.
     """
     if not isinstance(password, str):
         password = str(password)
+    
+    # Pre-hash with SHA-256 to ensure consistent 64-byte input
+    # This prevents any issues with long passwords during passlib initialization
+    password_bytes = password.encode('utf-8')
+    sha256_hash = hashlib.sha256(password_bytes).hexdigest()  # Always 64 bytes (hex)
+    
     try:
-        # bcrypt_sha256 handles long passwords automatically via SHA-256 pre-hashing
-        return pwd_context.hash(password)
+        # bcrypt_sha256 will hash this SHA-256 hash again with bcrypt
+        # This double-hashing is secure and ensures we never exceed 72 bytes
+        return pwd_context.hash(sha256_hash)
     except Exception as e:
         logger.error(f"Password hashing failed: {e}")
-        # Fallback: truncate and try again
+        # Last resort: use plain bcrypt with truncated password
         password = _truncate_password_for_bcrypt(password)
         return pwd_context.hash(password)
 
@@ -88,11 +97,22 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     """
     Verify password using bcrypt_sha256 scheme.
-    No truncation needed as bcrypt_sha256 handles long passwords automatically.
+    Pre-hash with SHA-256 to match hash_password behavior.
     """
     if not isinstance(password, str):
         password = str(password)
-    return pwd_context.verify(password, password_hash)
+    
+    # Pre-hash with SHA-256 to match hash_password
+    password_bytes = password.encode('utf-8')
+    sha256_hash = hashlib.sha256(password_bytes).hexdigest()  # Always 64 bytes (hex)
+    
+    try:
+        return pwd_context.verify(sha256_hash, password_hash)
+    except Exception as e:
+        logger.error(f"Password verification failed: {e}")
+        # Fallback: try with truncated password
+        password = _truncate_password_for_bcrypt(password)
+        return pwd_context.verify(password, password_hash)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
