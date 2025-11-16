@@ -15,7 +15,7 @@ from app.services.auth_service import (
     get_user_count,
 )
 from app.models.user import User
-from app.deps import get_current_user_optional
+from app.deps import get_current_user, get_current_user_optional
 from app.logging_config import get_logger
 from sqlalchemy import select
 
@@ -173,22 +173,10 @@ async def bootstrap_admin(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me", response_model=dict)
-async def me(authorization: str = "", db: AsyncSession = Depends(get_db)):
+async def me(current_user: User = Depends(get_current_user)):
     """
-    Simple /me using Authorization: Bearer <token>
+    Get current user information using Authorization: Bearer <token>
     """
-    if not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing bearer token")
-    token = authorization.split(" ", 1)[1]
-    try:
-        payload = decode_token(token)
-        user_id = int(payload.get("sub", "0"))
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    result = await db.get(User, user_id)
-    if not result:
-        raise HTTPException(status_code=401, detail="User not found")
-    return {"id": result.id, "email": result.email, "role": result.role}
+    return {"id": current_user.id, "email": current_user.email, "role": current_user.role}
 
 
