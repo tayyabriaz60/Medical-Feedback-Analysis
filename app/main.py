@@ -15,14 +15,15 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi.errors import RateLimitExceeded
 
 from app.db import AsyncSessionLocal, init_db
 from app.logging_config import get_logger, setup_logging
 from app.middleware.logging import RequestLoggingMiddleware
-from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.rate_limiter import limiter, rate_limit_error_handler
 from app.routers import analytics, feedback, health
 from app.routers import auth as auth_router
-from app.services.auth_service import ensure_admin_user, ensure_or_update_admin_user, get_secret_key
+from app.services.auth_service import ensure_admin_user_exists, get_secret_key
 from app.sockets.events import sio
 from app.utils.errors import APIError, api_error_handler, generic_error_handler
 
@@ -57,14 +58,14 @@ async def lifespan(app: FastAPI):
         logger.error("Database initialization failed (continuing anyway): %s", exc)
         # Don't fail startup on DB init issues - health check will catch it
 
-    # Admin bootstrap - run asynchronously in background
+    # Admin bootstrap - run asynchronously in background (non-blocking)
     async def bootstrap_admin():
         try:
             admin_email = os.getenv("ADMIN_EMAIL")
             admin_password = os.getenv("ADMIN_PASSWORD")
             if admin_email and admin_password:
                 async with AsyncSessionLocal() as seed_session:
-                    user, status = await ensure_or_update_admin_user(
+                    user, status = await ensure_admin_user_exists(
                         seed_session, admin_email, admin_password, role="admin"
                     )
                     logger.info(f"Admin user {status}: {admin_email} (ID: {user.id})")
@@ -109,6 +110,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Add rate limiter to app state
+app.state.limiter = limiter
+
+# Add rate limit exception handler
+app.add_exception_handler(RateLimitExceeded, rate_limit_error_handler)
+
 # CORS configuration - allow specific origins
 allowed_origins = [
     "http://localhost:8000",
@@ -122,9 +129,9 @@ allowed_origins = [
 if os.getenv("ENVIRONMENT", "production").lower() == "development":
     allowed_origins.append("*")
 
-# Add middlewares (order matters - add logging first, then CORS, then rate limiting)
+# Add middlewares (order matters - logging first, then CORS)
+# Rate limiting now handled by slowapi decorators on individual endpoints
 app.add_middleware(RequestLoggingMiddleware)
-app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

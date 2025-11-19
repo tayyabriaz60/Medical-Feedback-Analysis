@@ -130,20 +130,22 @@ async def ensure_admin_user(db: AsyncSession, email: Optional[str], password: Op
     logger.info(f"Admin user created successfully: {email} (ID: {user.id})")
 
 
-async def ensure_or_update_admin_user(
+async def ensure_admin_user_exists(
     db: AsyncSession,
     email: str,
     password: str,
     role: str = "admin"
 ) -> Tuple[User, str]:
     """
-    Smart admin user management:
-    - If user doesn't exist: CREATE new one
-    - If user exists but credentials different: UPDATE credentials
-    - If user exists and credentials same: DO NOTHING (return "unchanged")
+    Simple admin user management:
+    - If user doesn't exist: CREATE it
+    - If user exists: DO NOTHING (return existing)
+    
+    IMPORTANT: This does NOT update passwords on startup!
+    Passwords should only be changed via dedicated admin endpoint.
     
     Returns:
-        Tuple[User, str]: (user_object, status) where status is "created", "updated", or "unchanged"
+        Tuple[User, str]: (user_object, status) where status is "created" or "existing"
     """
     if not email or not password:
         logger.error("Admin email or password is empty")
@@ -153,35 +155,27 @@ async def ensure_or_update_admin_user(
     existing_user = await get_user_by_email(db, email)
     
     if existing_user:
-        # User exists - check if password is different
-        old_password_hash = existing_user.password_hash
-        new_password_hash = hash_password(password)
-        
-        if old_password_hash != new_password_hash:
-            # Credentials different - UPDATE password
-            logger.info(f"Updating admin user credentials: {email}")
-            existing_user.password_hash = new_password_hash
-            existing_user.role = role
-            await db.commit()
-            await db.refresh(existing_user)
-            logger.info(f"Admin user updated: {email}")
-            return existing_user, "updated"
-        else:
-            # Same credentials - DO NOTHING
-            logger.info(f"Admin user already exists with same credentials: {email}")
-            return existing_user, "unchanged"
-    else:
-        # User doesn't exist - CREATE
-        logger.info(f"Creating admin user: {email}")
-        new_user = User(
-            email=email,
-            password_hash=hash_password(password),
-            role=role
-        )
-        db.add(new_user)
-        await db.commit()
-        await db.refresh(new_user)
-        logger.info(f"Admin user created: {email} (ID: {new_user.id})")
-        return new_user, "created"
+        # User already exists - don't modify
+        logger.info(f"Admin user already exists: {email} (ID: {existing_user.id})")
+        return existing_user, "existing"
+    
+    # User doesn't exist - CREATE it
+    logger.info(f"Creating admin user: {email}")
+    new_user = User(
+        email=email,
+        password_hash=hash_password(password),
+        role=role
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    logger.info(f"Admin user created: {email} (ID: {new_user.id})")
+    return new_user, "created"
+
+
+# Keep old function for backward compatibility but rename
+async def ensure_or_update_admin_user(db, email, password, role="admin"):
+    """Deprecated: Use ensure_admin_user_exists() instead."""
+    return await ensure_admin_user_exists(db, email, password, role)
 
 

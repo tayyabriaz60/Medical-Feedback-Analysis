@@ -1,10 +1,12 @@
 """
 Async Gemini AI service for analyzing medical feedback.
+Includes circuit breaker pattern for fault tolerance.
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Any, Dict, Optional
 
 import httpx
@@ -25,8 +27,15 @@ load_dotenv()
 logger = get_logger(__name__)
 
 
+class CircuitBreakerState:
+    """Circuit breaker state tracking for Gemini API."""
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing, reject requests
+    HALF_OPEN = "half_open"  # Testing if service recovered
+
+
 class GeminiService:
-    """Service for interacting with Gemini AI via HTTPx."""
+    """Service for interacting with Gemini AI via HTTPx with circuit breaker."""
 
     def __init__(self) -> None:
         self.api_key = os.getenv("GOOGLE_API_KEY")
@@ -36,6 +45,13 @@ class GeminiService:
         # Model name should be just the model identifier, not "models/..."
         self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.timeout = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+        
+        # Circuit breaker state
+        self.circuit_state = CircuitBreakerState.CLOSED
+        self.failure_count = 0
+        self.circuit_open_until = None
+        self.max_failures_before_open = 5  # Open circuit after 5 consecutive failures
+        self.circuit_recovery_timeout = 60  # Try to recover after 60 seconds
 
     async def analyze_feedback(
         self,
@@ -132,6 +148,38 @@ class GeminiService:
         )
         return result
 
+    def _check_circuit_breaker(self) -> Optional[Dict[str, Any]]:
+        """Check if circuit breaker is open. Return error if open."""
+        if self.circuit_state == CircuitBreakerState.OPEN:
+            # Check if recovery timeout has passed
+            if time.time() > self.circuit_open_until:
+                logger.info("Circuit breaker entering half-open state (attempting recovery)")
+                self.circuit_state = CircuitBreakerState.HALF_OPEN
+                return None  # Allow one request through
+            else:
+                return {
+                    "error": "Gemini API circuit breaker is open (too many failures)",
+                    "retry": False
+                }
+        return None
+
+    def _record_success(self) -> None:
+        """Record a successful API call. Close circuit if half-open."""
+        if self.circuit_state == CircuitBreakerState.HALF_OPEN:
+            logger.info("Circuit breaker closed (service recovered)")
+            self.circuit_state = CircuitBreakerState.CLOSED
+        self.failure_count = 0
+
+    def _record_failure(self) -> None:
+        """Record a failed API call. Open circuit if too many failures."""
+        self.failure_count += 1
+        logger.warning(f"Gemini API failure #{self.failure_count}/{self.max_failures_before_open}")
+        
+        if self.failure_count >= self.max_failures_before_open:
+            logger.error("Circuit breaker opened: too many Gemini API failures")
+            self.circuit_state = CircuitBreakerState.OPEN
+            self.circuit_open_until = time.time() + self.circuit_recovery_timeout
+
     async def analyze_feedback_with_retry(
         self,
         feedback_text: str,
@@ -141,7 +189,13 @@ class GeminiService:
         rating: Optional[int] = None,
         max_retries: int = 3,
     ) -> Dict[str, Any]:
-        """Analyze feedback with exponential backoff retries."""
+        """Analyze feedback with exponential backoff retries and circuit breaker."""
+        
+        # Check circuit breaker status
+        breaker_error = self._check_circuit_breaker()
+        if breaker_error:
+            return breaker_error
+        
         last_result: Dict[str, Any] = {"error": "Unknown error"}
         for attempt in range(max_retries):
             result = await self.analyze_feedback(
@@ -151,13 +205,22 @@ class GeminiService:
                 visit_date=visit_date,
                 rating=rating,
             )
+            
             if "error" not in result:
+                self._record_success()
                 return result
+            
             last_result = result
+            self._record_failure()
+            
             if not result.get("retry", False) and "retry_after" not in result:
                 return result
-            wait_time = result.get("retry_after") or 2**attempt
+            
+            # Exponential backoff: 1s, 2s, 4s, etc.
+            wait_time = result.get("retry_after") or min(2 ** attempt, 30)
+            logger.info(f"Gemini retry attempt {attempt + 1}/{max_retries}, waiting {wait_time}s")
             await asyncio.sleep(wait_time)
+        
         return last_result
 
     @staticmethod

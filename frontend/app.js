@@ -1,19 +1,68 @@
 // API Base URL - Use current origin for production compatibility
 const API_BASE = window.location.origin;
 
-// Session management - Use sessionStorage instead of localStorage
-// sessionStorage automatically clears when tab/browser closes
+// Token management with expiry tracking
+// Uses localStorage so token persists across browser tabs
+// But validates expiry to prevent using old tokens
+const TokenManager = {
+    TOKEN_KEY: 'medical_feedback_token',
+    EXPIRY_KEY: 'medical_feedback_token_expiry',
+    ROLE_KEY: 'medical_feedback_role',
+    
+    setToken(token, expiryMinutes = 60) {
+        const expiryTime = Date.now() + (expiryMinutes * 60 * 1000);
+        localStorage.setItem(this.TOKEN_KEY, token);
+        localStorage.setItem(this.EXPIRY_KEY, expiryTime.toString());
+    },
+    
+    getToken() {
+        const token = localStorage.getItem(this.TOKEN_KEY);
+        const expiry = parseInt(localStorage.getItem(this.EXPIRY_KEY) || '0');
+        
+        // Check if token exists and hasn't expired
+        if (token && Date.now() < expiry) {
+            return token;
+        }
+        
+        // Token expired or missing - clear everything
+        if (token) {
+            console.log('Token expired, clearing...');
+            this.clearToken();
+        }
+        
+        return null;
+    },
+    
+    setRole(role) {
+        localStorage.setItem(this.ROLE_KEY, role);
+    },
+    
+    getRole() {
+        return localStorage.getItem(this.ROLE_KEY);
+    },
+    
+    clearToken() {
+        localStorage.removeItem(this.TOKEN_KEY);
+        localStorage.removeItem(this.EXPIRY_KEY);
+        localStorage.removeItem(this.ROLE_KEY);
+    },
+    
+    isTokenValid() {
+        return this.getToken() !== null;
+    }
+};
+
+// Backward compatibility functions
 function getToken() {
-    return sessionStorage.getItem('access_token');
+    return TokenManager.getToken();
 }
 
 function setToken(token) {
-    sessionStorage.setItem('access_token', token);
+    TokenManager.setToken(token);
 }
 
 function removeToken() {
-    sessionStorage.removeItem('access_token');
-    sessionStorage.removeItem('role');
+    TokenManager.clearToken();
 }
 
 // Socket.IO connection

@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import jwt, JWTError
@@ -17,6 +17,7 @@ from app.services.auth_service import (
 from app.models.user import User
 from app.deps import get_current_user, get_current_user_optional
 from app.logging_config import get_logger
+from app.middleware.rate_limiter import limiter, LOGIN_ATTEMPT_LIMIT, REGISTRATION_LIMIT
 from sqlalchemy import select
 
 
@@ -43,7 +44,9 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/register", response_model=dict, status_code=201)
+@limiter.limit(REGISTRATION_LIMIT)
 async def register(
+    request: Request,
     payload: RegisterRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional)
@@ -63,7 +66,12 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit(LOGIN_ATTEMPT_LIMIT)
+async def login(
+    request: Request,
+    payload: LoginRequest,
+    db: AsyncSession = Depends(get_db)
+):
     logger.info(f"Login attempt for email: {payload.email}")
     
     # Check if user exists (case-insensitive email match)

@@ -42,8 +42,28 @@
     <script>
         const API_BASE = window.location.origin;
         
-        // Do NOT clear session on page load - let user navigate back/forward freely
-        // Session will be managed by dashboard and logout button
+        // Token manager (same as in app.js)
+        const TokenManager = {
+            TOKEN_KEY: 'medical_feedback_token',
+            EXPIRY_KEY: 'medical_feedback_token_expiry',
+            ROLE_KEY: 'medical_feedback_role',
+            
+            setToken(token, expiryMinutes = 60) {
+                const expiryTime = Date.now() + (expiryMinutes * 60 * 1000);
+                localStorage.setItem(this.TOKEN_KEY, token);
+                localStorage.setItem(this.EXPIRY_KEY, expiryTime.toString());
+            },
+            
+            setRole(role) {
+                localStorage.setItem(this.ROLE_KEY, role);
+            },
+            
+            clearToken() {
+                localStorage.removeItem(this.TOKEN_KEY);
+                localStorage.removeItem(this.EXPIRY_KEY);
+                localStorage.removeItem(this.ROLE_KEY);
+            }
+        };
         
         const form = document.getElementById('loginForm');
         const alertBox = document.getElementById('alert');
@@ -63,9 +83,9 @@
                     throw new Error(err.detail || 'Login failed');
                 }
                 const data = await res.json();
-                // Persist token in sessionStorage (clears on tab close)
-                sessionStorage.setItem('access_token', data.access_token);
-                sessionStorage.setItem('role', data.role || '');
+                // Store token with expiry (persists across tabs)
+                TokenManager.setToken(data.access_token, 60);  // 60 minute expiry
+                TokenManager.setRole(data.role || '');
                 // Redirect to dashboard (existing UI at /)
                 window.location.href = '/';
             } catch (err) {

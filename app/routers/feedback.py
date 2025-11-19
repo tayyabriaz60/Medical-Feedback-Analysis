@@ -6,7 +6,7 @@ from datetime import datetime
 import csv
 import io
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from app.logging_config import get_logger
 from app.services.feedback_service import FeedbackService
 from app.utils.helpers import validate_rating
 from app.deps import require_role
+from app.middleware.rate_limiter import limiter, FEEDBACK_SUBMISSION_LIMIT
 from app.sockets.events import emit_new_feedback, emit_urgent_alert, emit_analysis_complete
 
 logger = get_logger(__name__)
@@ -84,7 +85,9 @@ class FeedbackDetailResponse(FeedbackResponse):
 
 
 @router.post("", response_model=FeedbackResponse, status_code=201)
+@limiter.limit(FEEDBACK_SUBMISSION_LIMIT)
 async def create_feedback(
+    request: Request,
     feedback_data: FeedbackCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
