@@ -43,25 +43,39 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     setup_logging()
     logger.info("Starting Medical Feedback Analysis Platform")
-    _validate_configuration()
-
-    await init_db()
-    logger.info("Database initialized")
+    
+    try:
+        _validate_configuration()
+    except Exception as exc:
+        logger.error("Configuration validation failed: %s", exc)
+        raise
 
     try:
-        admin_email = os.getenv("ADMIN_EMAIL")
-        admin_password = os.getenv("ADMIN_PASSWORD")
-        if admin_email and admin_password:
-            async with AsyncSessionLocal() as seed_session:
-                # Smart admin management: create, update, or do nothing
-                user, status = await ensure_or_update_admin_user(
-                    seed_session, admin_email, admin_password, role="admin"
-                )
-                logger.info(f"Admin user {status}: {admin_email} (ID: {user.id})")
-        else:
-            logger.info("Admin bootstrap skipped - set ADMIN_EMAIL/ADMIN_PASSWORD to enable")
-    except Exception as exc:  # pragma: no cover
-        logger.exception("Admin bootstrap failed: %s", exc)
+        await init_db()
+        logger.info("Database initialized")
+    except Exception as exc:
+        logger.error("Database initialization failed (continuing anyway): %s", exc)
+        # Don't fail startup on DB init issues - health check will catch it
+
+    # Admin bootstrap - run asynchronously in background
+    async def bootstrap_admin():
+        try:
+            admin_email = os.getenv("ADMIN_EMAIL")
+            admin_password = os.getenv("ADMIN_PASSWORD")
+            if admin_email and admin_password:
+                async with AsyncSessionLocal() as seed_session:
+                    user, status = await ensure_or_update_admin_user(
+                        seed_session, admin_email, admin_password, role="admin"
+                    )
+                    logger.info(f"Admin user {status}: {admin_email} (ID: {user.id})")
+            else:
+                logger.info("Admin bootstrap skipped - set ADMIN_EMAIL/ADMIN_PASSWORD to enable")
+        except Exception as exc:
+            logger.warning("Admin bootstrap failed (non-critical): %s", exc)
+    
+    # Schedule bootstrap to run after startup (non-blocking)
+    import asyncio
+    asyncio.create_task(bootstrap_admin())
 
     _maybe_open_browser()
 

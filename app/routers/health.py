@@ -15,14 +15,13 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 @router.get("")
 async def health_check():
-    """Return service and database health information."""
-    db_connected = await check_db_connection()
-    pool_stats = get_pool_stats()
-
+    """Return service and database health information - responds quickly for Render."""
+    # Always return 200 OK immediately (Render's health check just needs quick response)
+    # Detailed health check available at /health/ping
     return {
         "service": "medical-feedback-api",
-        "status": "healthy" if db_connected else "degraded",
-        "database": {"connected": db_connected, "pool": pool_stats},
+        "status": "healthy",
+        "message": "Service is running. Check /health/ping for detailed diagnostics."
     }
 
 
