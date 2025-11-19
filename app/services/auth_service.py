@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 import os
 import secrets
-import hashlib
 
 import bcrypt
 from jose import jwt
@@ -45,71 +44,31 @@ def generate_secret_key() -> str:
     return key
 
 
-def _truncate_password_for_bcrypt(password: str) -> str:
-    """
-    Truncate password to 72 bytes (bcrypt limit).
-    Note: bcrypt_sha256 handles this automatically, but we keep this for safety.
-    """
-    if not isinstance(password, str):
-        password = str(password)
-    # bcrypt_sha256 automatically handles long passwords via SHA-256 pre-hashing
-    # So truncation is not strictly needed, but we keep it for compatibility
-    password_bytes = password.encode('utf-8')
-    if len(password_bytes) > 72:
-        # Truncate to exactly 72 bytes
-        truncated_bytes = password_bytes[:72]
-        password = truncated_bytes.decode('utf-8', errors='ignore')
-        logger.warning(
-            f"Password truncated from {len(password_bytes)} bytes to 72 bytes (bcrypt limit)."
-        )
-    return password
-
-
 def hash_password(password: str) -> str:
     """
-    Hash password using bcrypt with SHA-256 pre-hashing.
-    Pre-hash with SHA-256 to ensure password is always 64 bytes (hex) before bcrypt,
-    avoiding bcrypt's 72-byte limit and compatibility issues.
-    Uses bcrypt library directly to avoid passlib initialization issues.
+    Hash password using bcrypt with secure random salt.
+    Bcrypt automatically handles the 72-byte limit internally.
     """
     if not isinstance(password, str):
         password = str(password)
     
-    # Pre-hash with SHA-256 to ensure consistent 64-byte input
-    # SHA-256 hex digest is always exactly 64 bytes (32 bytes * 2 for hex)
     password_bytes = password.encode('utf-8')
-    sha256_hash = hashlib.sha256(password_bytes).hexdigest()  # Always 64 bytes (hex string)
-    
-    # Convert to bytes for bcrypt (SHA-256 hex is 64 bytes, well under 72-byte limit)
-    sha256_bytes = sha256_hash.encode('utf-8')
-    
-    # Use bcrypt directly (bypasses passlib initialization issues)
-    # SHA-256 hash is always 64 bytes, so no truncation needed
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(sha256_bytes, salt)
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     """
-    Verify password using bcrypt with SHA-256 pre-hashing.
-    Pre-hash with SHA-256 to match hash_password behavior.
-    Uses bcrypt library directly to avoid passlib initialization issues.
+    Verify password against bcrypt hash.
     """
     if not isinstance(password, str):
         password = str(password)
     
-    # Pre-hash with SHA-256 to match hash_password
-    password_bytes = password.encode('utf-8')
-    sha256_hash = hashlib.sha256(password_bytes).hexdigest()  # Always 64 bytes (hex)
-    
-    # Convert to bytes for bcrypt
-    sha256_bytes = sha256_hash.encode('utf-8')
-    password_hash_bytes = password_hash.encode('utf-8')
-    
     try:
-        # Use bcrypt directly (bypasses passlib initialization issues)
-        return bcrypt.checkpw(sha256_bytes, password_hash_bytes)
+        password_bytes = password.encode('utf-8')
+        password_hash_bytes = password_hash.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, password_hash_bytes)
     except Exception as e:
         logger.error(f"Password verification failed: {e}")
         return False

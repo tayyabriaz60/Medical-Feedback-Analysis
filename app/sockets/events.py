@@ -22,12 +22,26 @@ STAFF_ROOM = "staff_room"
 
 
 def _extract_token(auth_payload: Dict) -> str | None:
+    """Extract JWT token from Socket.IO auth payload.
+    
+    Expected format:
+    - auth.token: "Bearer <token>"
+    - or just the token string
+    """
     if not isinstance(auth_payload, dict):
         return None
-    bearer = auth_payload.get("token") or auth_payload.get("Authorization")
-    if bearer and bearer.lower().startswith("bearer "):
+    
+    # Try to get token from "token" key (standard)
+    bearer = auth_payload.get("token")
+    if not bearer:
+        return None
+    
+    # Handle "Bearer <token>" format
+    if isinstance(bearer, str) and bearer.lower().startswith("bearer "):
         return bearer.split(" ", 1)[1]
-    return None
+    
+    # Return raw token if no "Bearer " prefix
+    return bearer if isinstance(bearer, str) else None
 
 
 @sio.event

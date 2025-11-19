@@ -28,7 +28,7 @@ class FeedbackCreate(BaseModel):
     visit_date: datetime
     department: str
     doctor_name: Optional[str] = None
-    feedback_text: str = Field(..., min_length=10)
+    feedback_text: str = Field(..., min_length=10, max_length=5000)
     rating: int = Field(..., ge=1, le=5)
     
     @validator('rating')
@@ -377,6 +377,18 @@ async def retry_analysis(
     return {"message": "Analysis retry initiated", "feedback_id": feedback_id}
 
 
+@router.delete("/{feedback_id}", response_model=dict, dependencies=[Depends(require_role("admin"))])
+async def delete_feedback(
+    feedback_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete feedback (admin only). Cascade deletes related analysis and actions."""
+    success = await FeedbackService.delete_feedback(db, feedback_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return {"message": "Feedback deleted successfully", "feedback_id": feedback_id}
+
+
 def generate_feedback_csv(feedbacks: List[dict]) -> Iterator[str]:
     """Stream feedback rows as CSV."""
     buffer = io.StringIO()
@@ -395,11 +407,11 @@ def generate_feedback_csv(feedbacks: List[dict]) -> Iterator[str]:
         "created_at",
     ]
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    
+    # Write header
     writer.writeheader()
-    yield buffer.getvalue()
-    buffer.seek(0)
-    buffer.truncate(0)
-
+    
+    # Write all data rows
     for item in feedbacks:
         writer.writerow({
             "id": item.get("id"),
@@ -415,7 +427,7 @@ def generate_feedback_csv(feedbacks: List[dict]) -> Iterator[str]:
             "primary_category": item.get("primary_category") or "",
             "created_at": item.get("created_at") or "",
         })
-        yield buffer.getvalue()
-        buffer.seek(0)
-        buffer.truncate(0)
+    
+    # Yield complete CSV at once
+    yield buffer.getvalue()
 

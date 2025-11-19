@@ -329,3 +329,14 @@ class FeedbackService:
         await db.commit()
         return retried
 
+    @staticmethod
+    async def delete_feedback(db: AsyncSession, feedback_id: int) -> bool:
+        """Delete feedback and cascade delete related analysis and actions."""
+        feedback = await FeedbackService.get_feedback_by_id(db, feedback_id)
+        if not feedback:
+            return False
+        await db.delete(feedback)
+        await db.commit()
+        logger.info("Feedback %s deleted", feedback_id)
+        return True
+

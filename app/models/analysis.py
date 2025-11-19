@@ -1,5 +1,6 @@
-from sqlalchemy import JSON, Column, Float, Index, Integer, String, Text, ForeignKey
+from sqlalchemy import JSON, Column, DateTime, Float, Index, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from app.db import Base
 
@@ -20,7 +21,7 @@ class Analysis(Base):
     medical_concerns = Column(JSON, nullable=True)
     actionable_insights = Column(Text, nullable=True)
     key_points = Column(JSON, nullable=True)
-    analyzed_at = Column(String(50), nullable=True)
+    analyzed_at = Column(DateTime(timezone=True), server_default=func.now())
 
     feedback = relationship("Feedback", back_populates="analysis")
 

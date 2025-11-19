@@ -8,6 +8,7 @@ from sqlalchemy import text
 import time
 
 from app.db import AsyncSessionLocal, get_pool_stats, check_db_connection
+from app.utils.constants import DEPARTMENTS, URGENCY_LEVELS, SENTIMENT_TYPES, FEEDBACK_STATUSES
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -38,5 +39,16 @@ async def ping():
     except Exception:
         latency_ms = None
     return {"status": "ok", "db_latency_ms": latency_ms}
+
+
+@router.get("/config")
+async def get_config():
+    """Get application configuration constants (departments, status options, etc.)."""
+    return {
+        "departments": DEPARTMENTS,
+        "feedback_statuses": FEEDBACK_STATUSES,
+        "urgency_levels": URGENCY_LEVELS,
+        "sentiment_types": SENTIMENT_TYPES,
+    }
 
 

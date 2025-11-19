@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from app.db import AsyncSessionLocal, init_db
 from app.logging_config import get_logger, setup_logging
 from app.middleware.logging import RequestLoggingMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.routers import analytics, feedback, health
 from app.routers import auth as auth_router
 from app.services.auth_service import ensure_admin_user, ensure_or_update_admin_user, get_secret_key
@@ -107,8 +108,9 @@ allowed_origins = [
 if os.getenv("ENVIRONMENT", "production").lower() == "development":
     allowed_origins.append("*")
 
-# Add middlewares (order matters - add logging first, then CORS)
+# Add middlewares (order matters - add logging first, then CORS, then rate limiting)
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
