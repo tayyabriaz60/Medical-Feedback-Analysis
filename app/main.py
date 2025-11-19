@@ -128,22 +128,46 @@ app.include_router(analytics.router)
 app.include_router(auth_router.router)
 app.include_router(health.router)
 
-frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-if os.path.exists(frontend_path):
+# Frontend serving - try multiple possible paths
+def find_frontend_path():
+    """Find frontend directory - works both locally and in production."""
+    possible_paths = [
+        # Standard path (locally)
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend"),
+        # When running from project root
+        os.path.join(os.getcwd(), "frontend"),
+        # Production on Render
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend"),
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path) and os.path.isdir(path):
+            logger.info(f"Frontend directory found at: {path}")
+            return os.path.abspath(path)
+    
+    logger.warning(f"Frontend directory not found. Tried: {possible_paths}")
+    return None
+
+frontend_path = find_frontend_path()
+
+if frontend_path and os.path.exists(os.path.join(frontend_path, "index.html")):
+    logger.info(f"Mounting static files from: {frontend_path}")
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
     @app.get("/staff", include_in_schema=False)
     async def serve_staff_login():
         staff_path = os.path.join(frontend_path, "staff_login.html")
         if os.path.exists(staff_path):
-            return FileResponse(staff_path)
+            return FileResponse(staff_path, media_type="text/html")
+        logger.warning(f"Staff login page not found at: {staff_path}")
         return {"message": "Staff login page not found"}
 
     @app.get("/", include_in_schema=False)
     async def serve_frontend():
         index_path = os.path.join(frontend_path, "index.html")
         if os.path.exists(index_path):
-            return FileResponse(index_path)
+            return FileResponse(index_path, media_type="text/html")
+        logger.warning(f"Index page not found at: {index_path}")
         return {
             "message": "Medical Feedback Analysis Platform API",
             "version": "1.0.0",
@@ -157,6 +181,7 @@ if os.path.exists(frontend_path):
             return FileResponse(icon_path)
         return Response(status_code=204)
 else:
+    logger.warning("Frontend files not found - serving API only")
 
     @app.get("/")
     async def root():
